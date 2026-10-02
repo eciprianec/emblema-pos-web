@@ -322,7 +322,9 @@ export default function Ventas({ storeSettings, cajaAbierta, onOpenCorte }) {
 
   // Confirmar y procesar cobro (F12)
   const handleProcessCheckout = async () => {
+    if (processingSale) return; // Salvaguarda inmediata contra doble clic o reenvío simultáneo
     setCheckoutError('');
+
 
     const total = ticketTotal;
     const received = paymentMethod === 'efectivo' 

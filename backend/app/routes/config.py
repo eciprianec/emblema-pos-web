@@ -14,9 +14,10 @@ from sqlalchemy import text
 from ..database import get_db, engine, ensure_schema_upgrades
 from ..models import StoreSettings, User
 from ..schemas import StoreSettingsUpdate, UserCreate, UserUpdate, UserOut
-from ..auth import get_current_user, get_password_hash
+from ..auth import get_current_user, get_password_hash, require_permission
 
 router = APIRouter(prefix="/config", tags=["config"])
+
 
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "emblemapos.db"))
 
@@ -240,14 +241,30 @@ def delete_user(
 # RESPALDOS & MANTENIMIENTO DE BASE DE DATOS
 # ==========================================
 @router.get("/backup/download")
-def download_backup(current_user: User = Depends(get_current_user)):
-    """Descarga directa en 1-clic del archivo de base de datos SQLite (.db)"""
+def download_backup(current_user: User = Depends(require_permission("can_access_config"))):
+    """Descarga directa en 1-clic con snapshot atómico SQLite (Online Backup API con vaciado de WAL)"""
     if not os.path.exists(DB_PATH):
         raise HTTPException(status_code=404, detail="Archivo de base de datos no encontrado")
         
-    filename = f"emblemapos_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"emblemapos_backup_{timestamp}.db"
+    temp_dir = os.path.join(os.path.dirname(DB_PATH), "backups_temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_backup_path = os.path.join(temp_dir, filename)
+    
+    try:
+        # Generar snapshot atómico consistente mediante SQLite Online Backup API
+        src_conn = sqlite3.connect(DB_PATH)
+        dst_conn = sqlite3.connect(temp_backup_path)
+        with dst_conn:
+            src_conn.backup(dst_conn, pages=100)
+        dst_conn.close()
+        src_conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar snapshot consistente de la base de datos: {str(e)}")
+        
     return FileResponse(
-        path=DB_PATH,
+        path=temp_backup_path,
         filename=filename,
         media_type="application/octet-stream"
     )
@@ -255,7 +272,7 @@ def download_backup(current_user: User = Depends(get_current_user)):
 @router.post("/backup/restore")
 async def restore_backup(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("can_access_config"))
 ):
     """Restaura una copia de seguridad cargando un archivo .db o .sqlite con verificación de integridad"""
     if not file.filename.endswith((".db", ".sqlite")):
@@ -320,7 +337,7 @@ async def restore_backup(
     return {"message": "Base de datos restaurada y verificada exitosamente. Se ha aplicado el respaldo."}
 
 @router.post("/database/optimize")
-def optimize_database(current_user: User = Depends(get_current_user)):
+def optimize_database(current_user: User = Depends(require_permission("can_access_config"))):
     """Ejecuta VACUUM y REINDEX para optimizar índices y liberar espacio en disco"""
     try:
         with engine.connect() as conn:
@@ -338,6 +355,7 @@ def optimize_database(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error optimizando base de datos: {str(e)}")
 
 # ==========================================
+
 # NOTIFICACIONES POR CORREO ELECTRÓNICO
 # ==========================================
 @router.post("/test-email")

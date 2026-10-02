@@ -44,6 +44,13 @@ export class EcfService {
     return token;
   }
 
+  private getDgiiEnvironment(envStr?: string): ENVIRONMENT {
+    const clean = (envStr || config.dgii.environment || 'DEV').toUpperCase();
+    if (clean === 'CERT') return ENVIRONMENT.CERT;
+    if (clean === 'PROD') return ENVIRONMENT.PROD;
+    return ENVIRONMENT.DEV;
+  }
+
   /**
    * Procesa, firma y envía un e-CF a la DGII
    * @param request Datos de la factura
@@ -69,12 +76,12 @@ export class EcfService {
       logger.debug('XML firmado correctamente');
 
       // 4. Autenticación y envío
-      const env = config.dgii.environment === 'DEV' ? ENVIRONMENT.DEV : ENVIRONMENT.PROD;
+      const env = this.getDgiiEnvironment();
       const token = await this.getAuthToken(p12Reader, env);
       
       const ecfClient = new (ECF as any)(p12Reader, env);
       
-      logger.info(`Enviando factura ${request.encf} a DGII...`);
+      logger.info(`Enviando factura ${request.encf} a DGII (Ambiente: ${env})...`);
       // Llama a sendInvoice, sendEcf, o lo que esté disponible
       const response = await (ecfClient.sendEcf ? ecfClient.sendEcf(signedXml, token) : ecfClient.sendInvoice(signedXml, token));
 
@@ -85,7 +92,8 @@ export class EcfService {
         return {
           success: true,
           trackId: response.trackId,
-          codigoSeguridad: securityCode
+          codigoSeguridad: securityCode,
+          securityCode: securityCode
         };
       } else {
         logger.warn('Respuesta de DGII no contiene trackId', response);
@@ -114,7 +122,7 @@ export class EcfService {
       }
       const fileBuffer = fs.readFileSync(config.certificate.path);
       const p12Reader = new (P12Reader as any)(fileBuffer.toString('base64'), config.certificate.password);
-      const env = config.dgii.environment === 'DEV' ? ENVIRONMENT.DEV : ENVIRONMENT.PROD;
+      const env = this.getDgiiEnvironment();
       
       const token = await this.getAuthToken(p12Reader, env);
       const ecfClient = new (ECF as any)(p12Reader, env);
@@ -128,3 +136,4 @@ export class EcfService {
     }
   }
 }
+

@@ -50,3 +50,20 @@ def get_current_user(
         return user
     except JWTError:
         raise HTTPException(status_code=401, detail="Credenciales de acceso inválidas o expiradas")
+
+def require_permission(perm_name: str):
+    """
+    Dependencia de seguridad para proteger operaciones sensibles en backend.
+    Admite administradores incondicionalmente y valida permisos específicos en cajeros.
+    """
+    def permission_checker(current_user = Depends(get_current_user)):
+        if current_user.role == "admin":
+            return current_user
+        if not getattr(current_user, perm_name, False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acceso denegado: no cuenta con el permiso requerido ({perm_name})"
+            )
+        return current_user
+    return permission_checker
+

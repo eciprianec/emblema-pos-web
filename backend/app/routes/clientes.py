@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional, List
 from ..database import get_db
-from ..models import Client, CreditMovement, User
+from ..models import Client, CreditMovement, User, CashSession, CashMovement
 from ..schemas import ClientCreate, ClientOut, CreditPaymentRequest
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/clientes", tags=["clientes"])
+
 
 @router.get("", response_model=List[ClientOut])
 def get_clients(
@@ -139,35 +140,57 @@ def process_client_abono(
     if client.current_balance <= 0:
         raise HTTPException(status_code=400, detail="El cliente no tiene saldo pendiente por pagar")
         
-    previous_balance = client.current_balance
-    new_balance = max(0.0, previous_balance - payload.amount)
-    
-    # Actualizar balance
-    client.current_balance = new_balance
-    
-    # Crear movimiento
-    mov = CreditMovement(
-        client_id=client.id,
-        type="abono",
-        amount=payload.amount,
-        previous_balance=previous_balance,
-        new_balance=new_balance,
-        notes=payload.notes or f"Abono recibido por {current_user.full_name}"
-    )
-    db.add(mov)
-    db.commit()
-    db.refresh(mov)
-    
-    return {
-        "success": True,
-        "message": f"Abono de RD${payload.amount:,.2f} registrado exitosamente",
-        "receipt": {
-            "client_name": client.name,
-            "rnc_cedula": client.rnc_cedula,
-            "previous_balance": round(previous_balance, 2),
-            "amount_paid": round(payload.amount, 2),
-            "remaining_balance": round(new_balance, 2),
-            "cashier": current_user.full_name,
-            "date": mov.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        previous_balance = client.current_balance
+        new_balance = round(max(0.0, previous_balance - payload.amount), 2)
+        
+        # Actualizar balance
+        client.current_balance = new_balance
+        
+        # Crear movimiento de crédito
+        mov = CreditMovement(
+            client_id=client.id,
+            type="abono",
+            amount=round(payload.amount, 2),
+            previous_balance=round(previous_balance, 2),
+            new_balance=new_balance,
+            notes=payload.notes or f"Abono recibido por {current_user.full_name}"
+        )
+        db.add(mov)
+
+        # Si el cajero tiene un turno de caja abierto, registrar entrada de efectivo en caja
+        active_session = db.query(CashSession).filter(
+            CashSession.cashier_id == current_user.id,
+            CashSession.status == "open"
+        ).order_by(CashSession.opened_at.desc()).first()
+
+        if active_session:
+            cash_entry = CashMovement(
+                session_id=active_session.id,
+                cashier_id=current_user.id,
+                type="entrada",
+                amount=round(payload.amount, 2),
+                reason=f"Abono El Fiado - Cliente {client.name} (#{client.id})"
+            )
+            db.add(cash_entry)
+            
+        db.commit()
+        db.refresh(mov)
+        
+        return {
+            "success": True,
+            "message": f"Abono de RD${payload.amount:,.2f} registrado exitosamente",
+            "receipt": {
+                "client_name": client.name,
+                "rnc_cedula": client.rnc_cedula,
+                "previous_balance": round(previous_balance, 2),
+                "amount_paid": round(payload.amount, 2),
+                "remaining_balance": round(new_balance, 2),
+                "cashier": current_user.full_name,
+                "date": mov.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            }
         }
-    }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al registrar abono: {str(e)}")
+

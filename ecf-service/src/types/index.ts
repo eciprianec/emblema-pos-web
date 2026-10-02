@@ -41,7 +41,9 @@ export interface ECFResponse {
   status?: string;
   error?: string;
   codigoSeguridad?: string;
+  securityCode?: string;
 }
+
 
 export interface CertificateInfo {
   subject: string;

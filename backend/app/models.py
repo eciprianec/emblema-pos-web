@@ -223,12 +223,16 @@ class Sale(Base):
     cost_total = Column(Float, default=0.0) # Para cálculo instantáneo de ganancia
     
     payment_method = Column(String(20), default="cash") # "cash", "card", "transfer", "credit", "mixed"
+    payment_cash = Column(Float, default=0.0)
+    payment_card = Column(Float, default=0.0)
+    payment_transfer = Column(Float, default=0.0)
+    payment_credit = Column(Float, default=0.0)
     cash_received = Column(Float, default=0.0)
     cash_change = Column(Float, default=0.0)
     
     # Comprobante Fiscal Electrónico (DGII e-CF) & Formato 607
     ncf_type = Column(String(10), default="E32") # "E32"=Consumo, "E31"=Crédito Fiscal
-    encf = Column(String(20), nullable=False, index=True)
+    encf = Column(String(20), nullable=False, unique=True, index=True)
     ecf_track_id = Column(String(50), nullable=True)
     security_code = Column(String(20), nullable=True)
     dgii_status = Column(String(20), default="pending") # "pending", "sent", "accepted", "rejected"

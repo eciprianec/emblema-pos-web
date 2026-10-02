@@ -27,12 +27,13 @@ def get_current_session(
         return {"is_open": False, "session": None}
         
     # Calcular movimientos de la sesión
+    # Calcular movimientos de la sesión con soporte de pagos múltiples
     sales = db.query(Sale).filter(Sale.session_id == session.id, Sale.status == "completed").all()
     
-    cash_sales = sum(s.total for s in sales if s.payment_method == "cash")
-    card_sales = sum(s.total for s in sales if s.payment_method == "card")
-    transfer_sales = sum(s.total for s in sales if s.payment_method == "transfer")
-    credit_sales = sum(s.total for s in sales if s.payment_method == "credit")
+    cash_sales = sum((s.payment_cash if s.payment_cash is not None and s.payment_cash > 0 else (s.total if s.payment_method == "cash" else 0.0)) for s in sales)
+    card_sales = sum((s.payment_card if s.payment_card is not None and s.payment_card > 0 else (s.total if s.payment_method == "card" else 0.0)) for s in sales)
+    transfer_sales = sum((s.payment_transfer if s.payment_transfer is not None and s.payment_transfer > 0 else (s.total if s.payment_method == "transfer" else 0.0)) for s in sales)
+    credit_sales = sum((s.payment_credit if s.payment_credit is not None and s.payment_credit > 0 else (s.total if s.payment_method == "credit" else 0.0)) for s in sales)
     total_sales = sum(s.total for s in sales)
     
     movements = db.query(CashMovement).filter(CashMovement.session_id == session.id).all()
@@ -189,12 +190,12 @@ def close_session(
     if not session:
         raise HTTPException(status_code=400, detail="No hay turno de caja abierto para cerrar")
         
-    # Calcular totales
+    # Calcular totales con soporte de pagos múltiples
     sales = db.query(Sale).filter(Sale.session_id == session.id, Sale.status == "completed").all()
-    cash_sales = sum(s.total for s in sales if s.payment_method == "cash")
-    card_sales = sum(s.total for s in sales if s.payment_method == "card")
-    transfer_sales = sum(s.total for s in sales if s.payment_method == "transfer")
-    credit_sales = sum(s.total for s in sales if s.payment_method == "credit")
+    cash_sales = sum((s.payment_cash if s.payment_cash is not None and s.payment_cash > 0 else (s.total if s.payment_method == "cash" else 0.0)) for s in sales)
+    card_sales = sum((s.payment_card if s.payment_card is not None and s.payment_card > 0 else (s.total if s.payment_method == "card" else 0.0)) for s in sales)
+    transfer_sales = sum((s.payment_transfer if s.payment_transfer is not None and s.payment_transfer > 0 else (s.total if s.payment_method == "transfer" else 0.0)) for s in sales)
+    credit_sales = sum((s.payment_credit if s.payment_credit is not None and s.payment_credit > 0 else (s.total if s.payment_method == "credit" else 0.0)) for s in sales)
     total_sales = sum(s.total for s in sales)
     
     # Ganancia estimada (ventas - costos)

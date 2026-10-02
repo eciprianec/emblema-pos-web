@@ -258,25 +258,36 @@ def build_607_report(db: Session, year: int, month: int) -> Dict[str, Any]:
         permuta = 0.0
         otras = 0.0
 
-        p_method = (s.payment_method or "cash").lower()
+        p_cash = float(getattr(s, "payment_cash", 0.0) or 0.0)
+        p_card = float(getattr(s, "payment_card", 0.0) or 0.0)
+        p_trans = float(getattr(s, "payment_transfer", 0.0) or 0.0)
+        p_cred = float(getattr(s, "payment_credit", 0.0) or 0.0)
 
-        if p_method in ["cash", "efectivo"]:
-            efectivo = total_venta
-        elif p_method in ["card", "tarjeta"]:
-            tarjeta = total_venta
-        elif p_method in ["transfer", "transferencia"]:
-            transferencia = total_venta
-        elif p_method in ["credit", "credito"]:
-            credito = total_venta
-        elif p_method in ["mixed", "mixto"]:
-            c_recv = float(s.cash_received or 0.0)
-            if 0 < c_recv < total_venta:
-                efectivo = round(c_recv, 2)
-                tarjeta = round(total_venta - efectivo, 2)
+        if (p_cash + p_card + p_trans + p_cred) > 0:
+            efectivo = round(p_cash, 2)
+            tarjeta = round(p_card, 2)
+            transferencia = round(p_trans, 2)
+            credito = round(p_cred, 2)
+        else:
+            p_method = (s.payment_method or "cash").lower()
+            if p_method in ["cash", "efectivo"]:
+                efectivo = total_venta
+            elif p_method in ["card", "tarjeta"]:
+                tarjeta = total_venta
+            elif p_method in ["transfer", "transferencia"]:
+                transferencia = total_venta
+            elif p_method in ["credit", "credito"]:
+                credito = total_venta
+            elif p_method in ["mixed", "mixto"]:
+                c_recv = float(s.cash_received or 0.0)
+                if 0 < c_recv < total_venta:
+                    efectivo = round(c_recv, 2)
+                    tarjeta = round(total_venta - efectivo, 2)
+                else:
+                    efectivo = total_venta
             else:
                 efectivo = total_venta
-        else:
-            efectivo = total_venta
+
 
         row_data = {
             "numero_linea": idx,

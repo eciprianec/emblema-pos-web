@@ -30,9 +30,9 @@ export class XMLBuilderService {
 
       return {
         NumeroLinea: index + 1,
-        IndicadorFacturacion: item.tasaItbis > 0 ? 1 : 2, // 1 = Gravado, 2 = Exento (Simplificado)
+        IndicadorFacturacion: item.tasaItbis > 0 ? 1 : 2, // 1 = Gravado, 2 = Exento
         NombreItem: item.nombre,
-        IndicadorBienOServicio: item.esBien ? 1 : 2,
+        IndicadorBienOServicio: item.esBien !== false ? 1 : 2, // 1 = Bien (por defecto en POS), 2 = Servicio
         CantidadItem: item.cantidad,
         PrecioUnitarioItem: item.precioUnitario.toFixed(2),
         MontoItem: montoItem.toFixed(2),
@@ -40,6 +40,8 @@ export class XMLBuilderService {
     });
 
     montoTotal += totalITBIS;
+
+    const formaPagoFinal = data.formaPago || (data.tipoPago === 1 ? '01' : '02');
 
     const xmlObj: any = {
       ECF: {
@@ -58,11 +60,12 @@ export class XMLBuilderService {
             TerminoPago: '',
             TablaFormasPago: {
               FormaPago: {
-                FormaPago: data.formaPago,
+                FormaPago: formaPagoFinal,
                 MontoPago: montoTotal.toFixed(2),
               }
             }
           },
+
           Emisor: {
             RNCEmisor: config.emisor.rnc,
             RazonSocialEmisor: config.emisor.razonSocial,

@@ -10,6 +10,19 @@ engine = create_engine(
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 
+from sqlalchemy import event
+
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """Garantiza concurrencia óptima, integridad referencial y prevención de locks en SQLite"""
+    if "sqlite" in DATABASE_URL:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        cursor.execute("PRAGMA journal_mode = WAL;")
+        cursor.execute("PRAGMA busy_timeout = 10000;")
+        cursor.execute("PRAGMA synchronous = NORMAL;")
+        cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -17,6 +30,9 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -96,16 +112,26 @@ def ensure_schema_upgrades():
                 if col not in existing_purchase_cols:
                     conn.execute(text(f"ALTER TABLE purchases ADD COLUMN {col} {col_def}"))
 
-            # Columnas adicionales para sales (Formato 607 DGII)
+            # Columnas adicionales para sales (Formato 607 DGII y Pagos Múltiples)
             sales_cols_res = conn.execute(text("PRAGMA table_info(sales)"))
             existing_sales_cols = {row[1] for row in sales_cols_res.fetchall()}
             sales_additions = [
                 ("income_type", "VARCHAR(10) DEFAULT '01'"),
-                ("modified_ncf", "VARCHAR(50) DEFAULT NULL")
+                ("modified_ncf", "VARCHAR(50) DEFAULT NULL"),
+                ("payment_cash", "FLOAT DEFAULT 0.0"),
+                ("payment_card", "FLOAT DEFAULT 0.0"),
+                ("payment_transfer", "FLOAT DEFAULT 0.0"),
+                ("payment_credit", "FLOAT DEFAULT 0.0")
             ]
             for col, col_def in sales_additions:
                 if col not in existing_sales_cols:
                     conn.execute(text(f"ALTER TABLE sales ADD COLUMN {col} {col_def}"))
+
+            # Índice único para garantizar que nunca se duplique un e-NCF fiscal
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_encf ON sales(encf)"))
+            except Exception as idx_err:
+                print(f"Aviso al crear uq_sales_encf: {idx_err}")
 
             conn.commit()
     except Exception as e:

@@ -197,6 +197,7 @@ class SaleCreateRequest(BaseModel):
     client_rnc: Optional[str] = None
     ncf_type: str = "E32" # E32=Consumo, E31=Crédito Fiscal
     payment_method: str = "cash" # cash, card, transfer, credit, mixed
+    payments: Optional[Dict[str, float]] = None # Desglose opcional: {"cash": 0.0, "card": 0.0, "transfer": 0.0, "credit": 0.0}
     cash_received: float = 0.0
     items: List[SaleItemInput]
     send_to_dgii: bool = True
@@ -209,6 +210,10 @@ class SaleOut(BaseModel):
     itbis: float
     total: float
     payment_method: str
+    payment_cash: Optional[float] = 0.0
+    payment_card: Optional[float] = 0.0
+    payment_transfer: Optional[float] = 0.0
+    payment_credit: Optional[float] = 0.0
     cash_received: float
     cash_change: float
     ncf_type: str

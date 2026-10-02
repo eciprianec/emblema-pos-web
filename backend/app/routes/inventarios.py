@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from ..database import get_db
 from ..models import Product, StockMovement, User
-from ..auth import get_current_user
+from ..auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/inventarios", tags=["inventarios"])
 
@@ -24,7 +24,7 @@ class StockAdjustRequest(BaseModel):
 def add_stock(
     payload: StockAddRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("can_modify_inventory"))
 ):
     product = db.query(Product).filter(Product.id == payload.product_id, Product.is_active == True).first()
     if not product:
@@ -33,63 +33,72 @@ def add_stock(
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="La cantidad a ingresar debe ser mayor a 0")
         
-    prev = product.stock
-    product.stock += payload.quantity
-    
-    mov = StockMovement(
-        product_id=product.id,
-        type="entrada",
-        quantity=payload.quantity,
-        previous_stock=prev,
-        new_stock=product.stock,
-        notes=payload.notes or f"Entrada manual por {current_user.full_name}"
-    )
-    db.add(mov)
-    db.commit()
-    
-    return {
-        "success": True,
-        "message": f"Se agregaron {payload.quantity} unidades a {product.name}",
-        "product_id": product.id,
-        "previous_stock": prev,
-        "new_stock": product.stock
-    }
+    try:
+        prev = product.stock
+        product.stock = round(product.stock + payload.quantity, 2)
+        
+        mov = StockMovement(
+            product_id=product.id,
+            type="entrada",
+            quantity=payload.quantity,
+            previous_stock=prev,
+            new_stock=product.stock,
+            notes=payload.notes or f"Entrada manual por {current_user.full_name}"
+        )
+        db.add(mov)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Se agregaron {payload.quantity} unidades a {product.name}",
+            "product_id": product.id,
+            "previous_stock": prev,
+            "new_stock": product.stock
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al ingresar inventario: {str(e)}")
 
 @router.post("/adjust")
 @router.post("/ajustar-stock")
 def adjust_stock(
     payload: StockAdjustRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("can_modify_inventory"))
 ):
     product = db.query(Product).filter(Product.id == payload.product_id, Product.is_active == True).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
         
-    prev = product.stock
-    diff = payload.new_quantity - prev
-    product.stock = payload.new_quantity
-    
-    mov_type = "merma" if diff < 0 and payload.reason == "merma" else "ajuste"
-    
-    mov = StockMovement(
-        product_id=product.id,
-        type=mov_type,
-        quantity=abs(diff),
-        previous_stock=prev,
-        new_stock=product.stock,
-        notes=f"Ajuste ({payload.reason}) por {current_user.full_name}: {diff:+.2f}"
-    )
-    db.add(mov)
-    db.commit()
-    
-    return {
-        "success": True,
-        "message": f"Inventario de {product.name} ajustado a {payload.new_quantity}",
-        "product_id": product.id,
-        "previous_stock": prev,
-        "new_stock": product.stock
-    }
+    try:
+        prev = product.stock
+        diff = round(payload.new_quantity - prev, 2)
+        product.stock = round(payload.new_quantity, 2)
+        
+        mov_type = "merma" if diff < 0 and payload.reason == "merma" else "ajuste"
+        
+        mov = StockMovement(
+            product_id=product.id,
+            type=mov_type,
+            quantity=abs(diff),
+            previous_stock=prev,
+            new_stock=product.stock,
+            notes=f"Ajuste ({payload.reason}) por {current_user.full_name}: {diff:+.2f}"
+        )
+        db.add(mov)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Inventario de {product.name} ajustado a {payload.new_quantity}",
+            "product_id": product.id,
+            "previous_stock": prev,
+            "new_stock": product.stock
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al ajustar inventario: {str(e)}")
+
 
 @router.get("/low-stock")
 @router.get("/bajo-stock")
