@@ -309,6 +309,7 @@ def get_formatos_resumen(
     }
 
 @router.get("/formatos/606")
+@router.get("/reportes/606")
 def get_formato_606(
     year: Optional[int] = None,
     month: Optional[int] = None,
@@ -353,6 +354,7 @@ def download_606_csv(
     )
 
 @router.get("/formatos/607")
+@router.get("/reportes/607")
 def get_formato_607(
     year: Optional[int] = None,
     month: Optional[int] = None,

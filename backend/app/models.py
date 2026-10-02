@@ -60,6 +60,8 @@ class Product(Base):
     
     # Forma de venta: 'unit' (por unidad), 'bulk' (a granel/peso), 'package' (por paquete)
     sell_type = Column(String(20), default="unit")
+    # Clasificación fiscal DGII: 'bien' (Indicador 1) o 'servicio' (Indicador 2)
+    item_type = Column(String(20), default="bien")
     
     cost_price = Column(Float, default=0.0)
     margin_percent = Column(Float, default=30.0) # Margen de ganancia
@@ -240,12 +242,37 @@ class Sale(Base):
     modified_ncf = Column(String(50), nullable=True)
     
     status = Column(String(20), default="completed") # "completed", "cancelled"
+    # Estado fiscal desacoplado del estado comercial
+    # "pending", "transmitting", "accepted", "rejected", "unknown", "contingency"
+    fiscal_status = Column(String(20), default="pending")
+    fiscal_error = Column(Text, nullable=True)
+    xml_content = Column(Text, nullable=True) # Almacena el XML exacto enviado/firmado
+    idempotency_key = Column(String(100), nullable=True, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     cashier = relationship("User", back_populates="sales")
     session = relationship("CashSession", back_populates="sales")
     client = relationship("Client", back_populates="sales")
-    items = relationship("SaleItem", back_populates="sale")
+    items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
+    payments = relationship("SalePayment", back_populates="sale", cascade="all, delete-orphan")
+    returns = relationship("SaleReturn", back_populates="sale", cascade="all, delete-orphan")
+
+class SalePayment(Base):
+    """
+    Modelo Normalizado de Pagos (Opción B)
+    Registra cada método de pago individual, su código DGII, monto y referencias (voucher, cheque, etc.)
+    """
+    __tablename__ = "sale_payments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
+    payment_method = Column(String(30), nullable=False) # "cash", "card", "transfer", "credit", "gift_card", "swap", "note", "other"
+    dgii_code = Column(Integer, nullable=False, default=1) # 1 a 8 según DGII
+    amount = Column(Float, nullable=False)
+    reference = Column(String(100), nullable=True) # No. comprobante tarjeta, voucher, referencia bancaria
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    sale = relationship("Sale", back_populates="payments")
 
 class SaleItem(Base):
     __tablename__ = "sale_items"
@@ -254,6 +281,7 @@ class SaleItem(Base):
     sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
     name = Column(String(150), nullable=False)
+    item_type = Column(String(20), default="bien") # "bien" (Indicador 1) o "servicio" (Indicador 2)
     quantity = Column(Float, default=1.0)
     unit_price = Column(Float, nullable=False)
     cost_price = Column(Float, default=0.0)
@@ -263,6 +291,50 @@ class SaleItem(Base):
     total = Column(Float, nullable=False)
     
     sale = relationship("Sale", back_populates="items")
+    product = relationship("Product")
+
+class SaleReturn(Base):
+    """
+    Devoluciones y Anulaciones parciales o totales
+    Emite Nota de Crédito Electrónica (e-NCF E34) preservando el registro histórico original
+    """
+    __tablename__ = "sale_returns"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
+    cashier_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    encf = Column(String(20), nullable=False, unique=True, index=True) # Secuencia E34 (Nota de Crédito)
+    modified_encf = Column(String(20), nullable=False) # e-NCF original afectado
+    subtotal = Column(Float, default=0.0)
+    itbis = Column(Float, default=0.0)
+    total = Column(Float, default=0.0)
+    reason = Column(String(255), nullable=False)
+    refund_method = Column(String(30), default="cash") # "cash", "revert_credit", "credit_note"
+    fiscal_status = Column(String(20), default="pending")
+    ecf_track_id = Column(String(50), nullable=True)
+    security_code = Column(String(20), nullable=True)
+    xml_content = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    sale = relationship("Sale", back_populates="returns")
+    items = relationship("SaleReturnItem", back_populates="sale_return", cascade="all, delete-orphan")
+    cashier = relationship("User")
+
+class SaleReturnItem(Base):
+    __tablename__ = "sale_return_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    return_id = Column(Integer, ForeignKey("sale_returns.id"), nullable=False, index=True)
+    sale_item_id = Column(Integer, ForeignKey("sale_items.id"), nullable=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    name = Column(String(150), nullable=False)
+    quantity = Column(Float, nullable=False)
+    unit_price = Column(Float, nullable=False)
+    subtotal = Column(Float, nullable=False)
+    itbis = Column(Float, default=0.0)
+    total = Column(Float, nullable=False)
+    
+    sale_return = relationship("SaleReturn", back_populates="items")
     product = relationship("Product")
 
 # ================================

@@ -121,17 +121,90 @@ def ensure_schema_upgrades():
                 ("payment_cash", "FLOAT DEFAULT 0.0"),
                 ("payment_card", "FLOAT DEFAULT 0.0"),
                 ("payment_transfer", "FLOAT DEFAULT 0.0"),
-                ("payment_credit", "FLOAT DEFAULT 0.0")
+                ("payment_credit", "FLOAT DEFAULT 0.0"),
+                ("fiscal_status", "VARCHAR(20) DEFAULT 'pending'"),
+                ("fiscal_error", "TEXT DEFAULT NULL"),
+                ("xml_content", "TEXT DEFAULT NULL"),
+                ("idempotency_key", "VARCHAR(100) DEFAULT NULL")
             ]
             for col, col_def in sales_additions:
                 if col not in existing_sales_cols:
                     conn.execute(text(f"ALTER TABLE sales ADD COLUMN {col} {col_def}"))
+
+            # Columnas adicionales para products (Clasificación DGII bien/servicio)
+            prod_cols_res = conn.execute(text("PRAGMA table_info(products)"))
+            existing_prod_cols = {row[1] for row in prod_cols_res.fetchall()}
+            if "item_type" not in existing_prod_cols:
+                conn.execute(text("ALTER TABLE products ADD COLUMN item_type VARCHAR(20) DEFAULT 'bien'"))
+
+            # Columnas adicionales para sale_items
+            item_cols_res = conn.execute(text("PRAGMA table_info(sale_items)"))
+            existing_item_cols = {row[1] for row in item_cols_res.fetchall()}
+            if "item_type" not in existing_item_cols:
+                conn.execute(text("ALTER TABLE sale_items ADD COLUMN item_type VARCHAR(20) DEFAULT 'bien'"))
+
+            # Tablas nuevas: sale_payments, sale_returns, sale_return_items
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sale_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+                    payment_method VARCHAR(30) NOT NULL,
+                    dgii_code INTEGER NOT NULL DEFAULT 1,
+                    amount FLOAT NOT NULL,
+                    reference VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_payments_sale_id ON sale_payments(sale_id);"))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sale_returns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+                    cashier_id INTEGER NOT NULL REFERENCES users(id),
+                    encf VARCHAR(20) NOT NULL UNIQUE,
+                    modified_encf VARCHAR(20) NOT NULL,
+                    subtotal FLOAT DEFAULT 0.0,
+                    itbis FLOAT DEFAULT 0.0,
+                    total FLOAT DEFAULT 0.0,
+                    reason VARCHAR(255) NOT NULL,
+                    refund_method VARCHAR(30) DEFAULT 'cash',
+                    fiscal_status VARCHAR(20) DEFAULT 'pending',
+                    ecf_track_id VARCHAR(50),
+                    security_code VARCHAR(20),
+                    xml_content TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_returns_sale_id ON sale_returns(sale_id);"))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sale_return_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    return_id INTEGER NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
+                    sale_item_id INTEGER REFERENCES sale_items(id),
+                    product_id INTEGER REFERENCES products(id),
+                    name VARCHAR(150) NOT NULL,
+                    quantity FLOAT NOT NULL,
+                    unit_price FLOAT NOT NULL,
+                    subtotal FLOAT NOT NULL,
+                    itbis FLOAT DEFAULT 0.0,
+                    total FLOAT NOT NULL
+                );
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sale_return_items_return_id ON sale_return_items(return_id);"))
 
             # Índice único para garantizar que nunca se duplique un e-NCF fiscal
             try:
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_encf ON sales(encf)"))
             except Exception as idx_err:
                 print(f"Aviso al crear uq_sales_encf: {idx_err}")
+
+            # Índice único para idempotencia
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_idempotency ON sales(idempotency_key) WHERE idempotency_key IS NOT NULL"))
+            except Exception as idx_err:
+                print(f"Aviso al crear uq_sales_idempotency: {idx_err}")
 
             conn.commit()
     except Exception as e:

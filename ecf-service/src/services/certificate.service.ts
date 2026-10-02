@@ -1,41 +1,38 @@
 import { P12Reader } from 'dgii-ecf';
 import fs from 'fs';
+import path from 'path';
 import { config } from '../config';
 import { CertificateInfo } from '../types';
 import { logger } from '../utils/logger';
 
 export class CertificateService {
   /**
-   * Lee la información del certificado configurado
+   * Lee la información real del certificado digital configurado
    * @returns Metadatos del certificado
    */
   public getInfo(): CertificateInfo | null {
     try {
-      if (!fs.existsSync(config.certificate.path)) {
-        throw new Error('El archivo del certificado no existe en la ruta especificada.');
+      const certPath = config.certificate.path;
+      const resolvedPath = path.isAbsolute(certPath) ? certPath : path.resolve(process.cwd(), certPath);
+      
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`El archivo del certificado no existe en: ${resolvedPath}`);
       }
 
-      const fileBuffer = fs.readFileSync(config.certificate.path);
-      const p12Reader = new (P12Reader as any)(fileBuffer.toString('base64'), config.certificate.password);
+      const reader = new (P12Reader as any)(config.certificate.password);
+      const certInfo = reader.getCertificateInfo(resolvedPath);
       
-      // Extracción de datos del certificado (el objeto p12Reader en dgii-ecf expone la data o podemos leer usando crypto si es necesario)
-      // Como p12Reader no siempre expone los metadatos directos, lo simularemos o intentaremos acceder a las propiedades públicas si existen.
-      
-      // NOTA: 'dgii-ecf' usa node-forge internamente. Si p12Reader no expone 'certData', 
-      // retornaríamos un objeto genérico o intentaríamos el acceso directo.
-      // Por simplicidad, retornaremos un objeto simulado si la lectura no falla.
-      
-      logger.info('Certificado leído correctamente');
+      logger.info('Certificado digital leído correctamente:', certInfo.subject);
 
       return {
-        subject: "Certificado DGII", // Dummy metadata ya que dgii-ecf P12Reader lo valida pero no expone propiedades tan fácil a veces
-        issuer: "DGII CA",
-        validFrom: new Date(),
-        validTo: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
-        serialNumber: "1234567890"
+        subject: certInfo.subject || 'Certificado DGII',
+        issuer: certInfo.issuer || 'DGII CA',
+        validFrom: certInfo.validFrom ? new Date(certInfo.validFrom) : new Date(),
+        validTo: certInfo.validTo ? new Date(certInfo.validTo) : new Date(),
+        serialNumber: certInfo.serialNumber || '1234567890'
       };
     } catch (error: any) {
-      logger.error('Error leyendo el certificado:', error);
+      logger.error('Error leyendo el certificado digital:', error);
       return null;
     }
   }

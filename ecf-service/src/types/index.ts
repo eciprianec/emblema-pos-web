@@ -17,20 +17,30 @@ export interface Comprador {
   provincia?: string;
 }
 
+export interface PaymentDetail {
+  formaPago: number; // 1: Efectivo, 2: Cheque/Transf, 3: Tarjeta, 4: Crédito, 5: Bonos, 6: Permuta, 7: Nota Crédito, 8: Otras
+  montoPago: number;
+  referencia?: string;
+}
+
 export interface ItemDetail {
   nombre: string;
   cantidad: number;
   precioUnitario: number;
-  esBien: boolean;
+  itemType?: 'bien' | 'servicio';
+  esBien?: boolean;
   tasaItbis: number;
 }
 
 export interface InvoiceRequest {
-  tipoEcf: string; // ej. "31", "32"
-  encf: string;    // ej. "E310000000001"
-  fechaVencimientoSecuencia: string; // ej. "31-12-2025"
+  tipoEcf: string; // ej. "31", "32", "34"
+  encf: string;    // ej. "E310000000001", "E32...", "E34..."
+  fechaVencimientoSecuencia: string; // ej. "31-12-2026"
+  indicadorNotaCredito?: string;
+  ncfModificado?: string; // Para Notas de Crédito E34
   tipoPago: number; // 1 = Contado, 2 = Crédito
-  formaPago: string; // ej. "01" (Efectivo), "02" (Cheque)
+  formaPago?: number | string; // Compatibilidad con código único legacy
+  formasPago?: PaymentDetail[]; // Desglose multi-pago normalizado
   comprador: Comprador;
   items: ItemDetail[];
 }
@@ -42,6 +52,7 @@ export interface ECFResponse {
   error?: string;
   codigoSeguridad?: string;
   securityCode?: string;
+  xml?: string;
 }
 
 

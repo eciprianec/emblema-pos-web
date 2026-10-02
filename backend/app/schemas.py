@@ -190,6 +190,13 @@ class SaleItemInput(BaseModel):
     quantity: float = 1.0
     unit_price: float
     tax_rate: float = 18.0
+    item_type: Optional[str] = "bien" # "bien" (Indicador 1) o "servicio" (Indicador 2)
+
+class SalePaymentInput(BaseModel):
+    payment_method: str # "cash", "card", "transfer", "credit", "gift_card", "swap", "note", "other"
+    amount: float
+    reference: Optional[str] = None
+    dgii_code: Optional[int] = None
 
 class SaleCreateRequest(BaseModel):
     client_id: Optional[int] = None
@@ -197,10 +204,23 @@ class SaleCreateRequest(BaseModel):
     client_rnc: Optional[str] = None
     ncf_type: str = "E32" # E32=Consumo, E31=Crédito Fiscal
     payment_method: str = "cash" # cash, card, transfer, credit, mixed
-    payments: Optional[Dict[str, float]] = None # Desglose opcional: {"cash": 0.0, "card": 0.0, "transfer": 0.0, "credit": 0.0}
+    payments: Optional[Dict[str, float]] = None # Desglose básico compatible: {"cash": 0.0, "card": 0.0, ...}
+    payment_details: Optional[List[SalePaymentInput]] = None # Desglose normalizado extensible
     cash_received: float = 0.0
     items: List[SaleItemInput]
     send_to_dgii: bool = True
+    idempotency_key: Optional[str] = None # Clave de idempotencia única para prevenir cobros dobles
+
+class SaleReturnItemInput(BaseModel):
+    sale_item_id: Optional[int] = None
+    product_id: Optional[int] = None
+    quantity: float
+    reason: Optional[str] = None
+
+class SaleReturnRequest(BaseModel):
+    reason: str
+    refund_method: Optional[str] = "cash" # "cash", "revert_credit", "credit_note"
+    items: Optional[List[SaleReturnItemInput]] = None # Devolución total si no se especifican items
 
 class SaleOut(BaseModel):
     id: int
@@ -221,6 +241,9 @@ class SaleOut(BaseModel):
     ecf_track_id: Optional[str]
     security_code: Optional[str]
     dgii_status: str
+    fiscal_status: Optional[str] = "pending"
+    fiscal_error: Optional[str] = None
+    idempotency_key: Optional[str] = None
     created_at: datetime
     items: List[Any]
     class Config:
