@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-800 antialiased font-sans select-none;
+  }
+}
+
+/* Estilos de impresión para Tickets Térmicos de 80mm y 58mm */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #ticket-print-area, #ticket-print-area * {
+    visibility: visible;
+  }
+  #ticket-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0;
+    padding: 2mm;
+    font-size: 11px;
+    line-height: 1.2;
+    background: white;
+    color: black;
+  }
+  @page {
+    margin: 0;
+    size: auto;
+  }
+}
